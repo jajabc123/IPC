@@ -6,112 +6,99 @@
 #include <string.h>
 #include <unistd.h>
 
+#define LOG_IN  1
+#define LOG_OUT 2
+#define A_PRINTF() list.A_printf()
+#define B_PRINTF() list.B_printf()
+#define C_PRINTF() list.C_printf()
+
+//函数公共列表
 struct func_list
 {
 	void (*A_printf)();
 	void (*B_printf)();
 	void (*C_printf)();
-	
 };
 
-//注册库文件函数
-void load_func(void **alib,char *so_buf,char *get_buf,char *change_buf,struct func_list *list)
+//注册库文件函数0
+void func_operation(void **alib,char *sc_buf,struct func_list *list,int operation)
 {
-	void (*my_test)();
+	void (*my_handle)();
+	char name[32];
+	char func_name[34];
+	char so_buf[1024] = {0},get_buf[34] = {0};
+	char *change_buf = NULL;
+	
+	strcpy(so_buf,sc_buf);                             //把配置文件的信息复制到so_buf中去,以免strtok执行后sc_buf被改变
+	
 	change_buf = strtok(so_buf,",");	
-	sprintf(get_buf,"./%s",change_buf);//获取第一个库文件的名称
+	sprintf(get_buf,"./%s",change_buf);                //获取第一个库文件的名称
 	
 	 while(change_buf != NULL)
 	{
-		if(strcmp(change_buf,"a.so") == 0)
+		*alib = dlopen(get_buf,RTLD_NOW|RTLD_GLOBAL);  //动态打开库文件
+		if(*alib == NULL)
 		{
-			*alib = dlopen(get_buf,RTLD_NOW|RTLD_GLOBAL);//动态打开库文件
-			if(*alib == NULL)
-			{
-				perror("open so error:");
-				exit(1);
-			}
+			perror("open so error:");
+			exit(1);
+		}
+		
+		sscanf(change_buf,"%[^.so]",name);            //获取库函数名字
 
-			my_test = dlsym(*alib,"A_register");//注册库文件
-			if(my_test == NULL)
-			{
-				perror("register func A error:");
-				exit(1);
-			}
-			
-			my_test(list);//调用注册函数注册
-			
-		}
-		else if(strcmp(change_buf,"b.so") == 0)
+		if(operation == LOG_IN)
 		{
-			*alib = dlopen(get_buf,RTLD_NOW|RTLD_GLOBAL);//动态打开库文件
-			if(*alib == NULL)
-			{
-				perror("open so error:");
-				exit(1);
-			}
-
-			my_test = dlsym(*alib,"B_register");//注册库文件
-			if(my_test == NULL)
-			{
-				perror("register func B error:");
-				exit(1);
-			}
-			my_test(list);//调用注册函数注册
-			
+			sprintf(func_name,"%s_register",name);    //合成对应的注册库函数名字
 		}
-		else if(strcmp(change_buf,"c.so") == 0)
+		else if(operation == LOG_OUT)
 		{
-			*alib = dlopen(get_buf,RTLD_NOW|RTLD_GLOBAL);//动态打开库文件
-			if(*alib == NULL)
-			{
-				perror("open so error:");
-				exit(1);
-			}
-			
-			my_test = dlsym(*alib,"C_register");//注册库文件
-			if(my_test == NULL)
-			{
-				perror("register func C error:");
-				exit(1);
-			}
-			my_test(list);//调用注册函数注册
+			sprintf(func_name,"%s_release",name);     //合成对应的注销库函数名字
 		}
-		else 
+		else
 		{
-			printf("The system have no %s lib \r\n",change_buf);//没有加载到库文件的提示
+			printf("The operation is illegal!\r\n");  //错误操作警报
+			exit(1);
 		}
+		
+		my_handle = dlsym(*alib,func_name);           //动态加载对应的库文件函数
+		if(my_handle == NULL)
+		{
+			perror("handle func error:");
+			exit(1);
+		}
+		my_handle(list);                              //调用相应的操作函数
+		
 	change_buf = strtok(NULL,",");	
-	sprintf(get_buf,"./%s",change_buf);//获取下一个库文件的名称
+	sprintf(get_buf,"./%s",change_buf);               //获取下一个库文件的名称
 	}
 }
+
 
 int main(void)
 {	
 	void *alib = NULL;
 	int fd = 0, ret = 0;
-	char so_buf[1024] = {0},get_buf[34] = {0};
-	char *change_buf = NULL;
+	char sc_buf[1024] = {0};
+	
 	struct func_list list;
 	
-	
-	fd = open("./so_config.txt",O_RDONLY|O_CREAT,0777);//打开配置文件
+	fd = open("./so_config.txt",O_RDONLY|O_CREAT,0777);              //打开配置文件
 	if(fd == 0)
 	{
 		perror("open so.txt error:");
 		exit(1);
 	}
 	
-	ret = read(fd,so_buf,sizeof(so_buf));//读取配置文件的信息
+	ret = read(fd,sc_buf,sizeof(sc_buf));                            //读取配置文件的信息
 	
-	load_func(&alib,so_buf,get_buf,change_buf,&list);
+	func_operation(&alib,sc_buf,&list,LOG_IN);    					 //注册各个库文件里面的函数
 	
-	list.A_printf();//调用函数A
+	A_PRINTF();	                                                     //调用函数A
+	B_PRINTF();	                                                     //调用函数B
+	C_PRINTF();	                                                     //调用函数C
 	
-	list.B_printf();//调用函数B
-	list.C_printf();//调用函数C
+	func_operation(&alib,sc_buf,&list,LOG_OUT);	                     //注销各个库文件里面的函数
 	
-	dlclose(alib);//动态关闭库文件
+	dlclose(alib);                                                   //动态关闭库文件
 	close(fd);
 	
 	return 0;
